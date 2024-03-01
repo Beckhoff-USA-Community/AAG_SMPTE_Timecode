@@ -1,0 +1,45 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="MAIN_Receiver" Id="{829cf880-89e0-4808-9386-f68ae7048a02}" SpecialFunc="None">
+    <Declaration><![CDATA[PROGRAM MAIN_Receiver
+VAR
+	// SMPTE Receiver
+	SMPTE_Receiver 	: FB_SMPTE_Receiver;
+	ReceivingSignal	: BOOL;
+	FrameRate		: REAL;
+	TimeString		: STRING;
+	TimeStruct		: ST_SMPTE_TimeStruct;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[(************************)
+(**** SMPTE Receiver ****)
+(************************)
+
+// Call the execute method once each cycle
+SMPTE_Receiver.Cycle();
+// Check if the cable is connected and receiving timecode analog signal
+ReceivingSignal := SMPTE_Receiver.Receiving;
+// Get the framerate
+FrameRate := SMPTE_Receiver.FrameRate;
+// Get the time as string output
+TimeString := SMPTE_Receiver.TimeString;
+// Get the time as time struct
+TimeStruct := SMPTE_Receiver.TimeStruct;]]></ST>
+    </Implementation>
+    <LineIds Name="MAIN_Receiver">
+      <LineId Id="30" Count="0" />
+      <LineId Id="27" Count="2" />
+      <LineId Id="22" Count="0" />
+      <LineId Id="2" Count="0" />
+      <LineId Id="23" Count="0" />
+      <LineId Id="8" Count="0" />
+      <LineId Id="24" Count="0" />
+      <LineId Id="19" Count="0" />
+      <LineId Id="25" Count="0" />
+      <LineId Id="14" Count="0" />
+      <LineId Id="26" Count="0" />
+      <LineId Id="15" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

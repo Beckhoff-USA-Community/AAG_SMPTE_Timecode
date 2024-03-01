@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <DUT Name="ST_SMPTE_TimeStruct" Id="{3e8a0262-fc14-493e-9e6b-ff034b2e0ed2}">
+    <Declaration><![CDATA[TYPE ST_SMPTE_TimeStruct :
+STRUCT
+	Hours: BYTE; 		// 0..24 h
+	Minutes: BYTE; 		// 0..60 min
+	Seconds: BYTE;		// 0..60 sec
+	Frames: BYTE;		// 0..24|25|30 frames
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

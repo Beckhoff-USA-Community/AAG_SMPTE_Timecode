@@ -1,0 +1,398 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="FB_SMPTE_Receiver" Id="{ebeed17d-4294-40a2-bf26-21481c98f14f}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_SMPTE_Receiver
+VAR
+	EL3702_Samples AT %I*: ARRAY[1..OversamplingFactor] OF INT;
+	EL3702_Samples_Doublecycles : ARRAY[1..DoubleOversamplingFactor] OF INT;
+	EL3702_Samples_DoublecyclesTrig : ARRAY[1..DoubleOversamplingFactor] OF INT;
+	Tab_TimeCodeFrame: ARRAY[1..TimeCodeFrame] OF BYTE;					(* Bit read in the frame *)
+	LastTimeCodeFrame: ARRAY[0..79] OF BYTE;									(* Last and unique TimeCode Frame *)
+	SyncWord : ARRAY [1..16] OF BYTE :=[ 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1];
+	SyncWordTemp : ARRAY [1..16] OF BYTE;
+	i: WORD;
+	j: DWORD;
+	LastEdge: DWORD;
+	ConstantTime: DWORD;
+	Even: BOOL;	(* Is use to mesure 2 half period to detect a bit 1 *)
+	First_BitZero_Reach: BOOL  := FALSE ;	(* We can mesure only when we reach a first Bit 0 otherwise we do not know in which half period of a bit 1 we are *)
+	Index_Tab_EL3702: INT := 102;
+	Index_Tab_TimeCodeFrame: WORD := 1;
+	h: WORD;
+
+	Index_Tab_EL3702_Error: WORD;			(* Increased when an edge had not beed detected in the last cycle *)
+	Index_Tab_TimeCodeFrame_Error: WORD;	(* Increased when we are not able to catch a SyncWord in the big Array of TimeCode Bits. Normally, an Syncword each 80 bits *)
+	
+	// Internal Properties
+	_Reset : BOOL;
+	_Receiving : BOOL;
+	_FrameRate: REAL;
+	_FrameError: DWORD;
+	
+	_SMPTE_TimeStruct : ST_SMPTE_TimeStruct;
+	_SMPTE_TimeStructExt : ST_SMPTE_TimeStructExt;
+
+	_FrameRead: DWORD;
+	_Time_String: STRING;
+END_VAR
+
+VAR CONSTANT
+	OversamplingFactor: WORD := 100;			(* EL3702 Oversampling rate = 100 samples per cycle *)
+	DoubleOversamplingFactor: WORD := 200;	(*  = OversamplingFactor x 2 *)
+	TimeCodeFrame : WORD := 300;				(* bits detected in the Timecode signal *)
+	SignalThreshold : INT := 25;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{78921a54-f0a0-4c7c-adf2-7d472f15bd86}" />
+    <Folder Name="Public" Id="{ae3e6fec-0150-4b4e-b872-e2c47c4f573e}" />
+    <Method Name="Cycle" Id="{5b9d2920-4f40-467c-9e91-5d39c8e65403}" FolderPath="Public\">
+      <Declaration><![CDATA[METHOD Cycle : BOOL
+VAR_INST
+	// Check if there is a timing error
+	rtTimeError : R_TRIG;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[// Check timing error and task time
+rtTimeError(CLK := UDINT_TO_LREAL(_TaskInfo[GETCURTASKINDEXEX()].CycleTime) / 10_000 <> 1);
+IF rtTimeError.Q THEN
+	ADSLOGSTR( msgCtrlMask := ADSLOG_MSGTYPE_ERROR OR ADSLOG_MSGTYPE_MSGBOX, msgFmtStr := 'PLC SMPTE Receiver: Execution Time Not Valid, Please set to 1ms','');
+END_IF
+
+IF _Reset THEN
+	First_BitZero_Reach := FALSE;
+	Index_Tab_TimeCodeFrame := 1;
+	Index_Tab_EL3702 := 102;
+	Even := FALSE;
+	FOR i:= 1 TO TimeCodeFrame DO
+		Tab_TimeCodeFrame [ i ] := 0;
+	END_FOR
+	_Reset := FALSE;
+END_IF
+
+IF SignalCheck() THEN
+	(* We save the last 2 cycles *)
+	FOR i:=1 TO OversamplingFactor DO
+		EL3702_Samples_Doublecycles [ i ] := EL3702_Samples_Doublecycles [ i+OversamplingFactor ];
+	END_FOR
+	FOR i:=1 TO OversamplingFactor DO
+		EL3702_Samples_Doublecycles [ OversamplingFactor + i ] := EL3702_Samples [i];
+	END_FOR
+	
+	(* Now we create an ARRAY that show the binary code *)
+	ConstantTime := 0;							(* ConstantTime is the duration of a constant level of the analog signal, time between 2 edges *)
+	FOR i:= 1 TO 2*OversamplingFactor DO
+		  EL3702_Samples_DoublecyclesTrig [i ] := 0;	(* An array that provide only the edges of the analog signal, only in the last cycle *)
+	END_FOR
+	
+	FOR i:= Index_Tab_EL3702 TO ( 2*OversamplingFactor-1)  DO
+		IF 	EL3702_Samples_Doublecycles[ i-1] * EL3702_Samples_Doublecycles [ i ] < 0					(* The analog signal change of sign --> there is an edge *)
+		OR 	EL3702_Samples_Doublecycles [ i-1 ] <> 0 AND EL3702_Samples_Doublecycles [ i ] = 0 THEN	(* We capture a sample that is 0 : It's also a new edge *)
+			EL3702_Samples_DoublecyclesTrig [ i ] := 1;
+			IF LastEdge = 0 THEN										(* We have to wait a least the second edge to mesure *)
+				LastEdge := i;
+			ELSE													(* Let's go ... *)
+				ConstantTime := (i - LastEdge) * 10 ;  	(* if  EL3702 Oversampling time = 10 µs*)
+				LastEdge := i;
+				IF ConstantTime < 330 AND ConstantTime<>0 AND First_BitZero_Reach THEN		(* It's part of a 1 signal *)
+					(* 330µs is a fix limit that match all frame rates : Minimum period is 400 µs at 30 fr/sec, maximum half period is 260 µs at 24 fr/sec*)
+					IF First_BitZero_Reach THEN											(* We first need to read a 0 bit, or we are not able to know in wich part of a 1 bit we are *)
+						IF NOT Even THEN				(* First part of a 1 bit *)
+							Index_Tab_EL3702 := i ;
+							Even := TRUE;
+						ELSE							(* Second part of a 1 bit *)
+							Tab_TimeCodeFrame [ Index_Tab_TimeCodeFrame ] := 1;			(* We save a 1 bit in an array *)
+							Index_Tab_TimeCodeFrame := Index_Tab_TimeCodeFrame + 1;		(* and manage this array *)
+							Index_Tab_EL3702 := i ;										(* This bit in Frame is already handled, we will continu from this sample *)
+							Even := FALSE;
+						END_IF
+					END_IF
+				ELSIF ConstantTime > 300  THEN											(* It's a 0 bit *)
+					First_BitZero_Reach := TRUE; 											(* One 0 bit had been detected. We are now able to mesure 1 bit *)
+					IF Even THEN						(* If we were in the first part of a 1 bit *)
+						Even := FALSE;
+						_FrameError := _FrameError + 1;		(* Then this 1 bit is not finished and it's a Frame Error *)
+					END_IF
+					Tab_TimeCodeFrame [ Index_Tab_TimeCodeFrame ] := 0;					(* We save a 1 bit in an array *)
+					Index_Tab_TimeCodeFrame := Index_Tab_TimeCodeFrame + 1;				(* and manage this array *)
+					Index_Tab_EL3702 := i ;												(* This bit in Frame is already handled, we will continu from this sample *)
+					_FrameRate := 1000000.0 / (ConstantTime * 80);	(* We measure the frame Rate. 0 Signal = 1 bit. 80 bit / frame *)
+				END_IF
+			END_IF
+		END_IF
+	END_FOR
+	Index_Tab_EL3702 := Index_Tab_EL3702 - OversamplingFactor +1; 			(* +1 in order to do not take in consideration the last one we handled *)
+	IF Index_Tab_EL3702 < 2  THEN							(* There is a problem : We should be able to read an edge in the last cycle *)
+		Index_Tab_EL3702_Error := Index_Tab_EL3702_Error + 1;
+	END_IF
+	LastEdge := LastEdge - OversamplingFactor;										(* We will shift the array of the last 2 Oversampling cycle. Then the last Edge will be 100 samples before *)
+	
+	
+	
+	
+	(* We are looking for the SyncWord - Sequence 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1 *)
+	FOR i:=16 TO  ( TimeCodeFrame ) DO	(* Sync Word = 16 bits *)
+		FOR j := 1 TO 16 DO
+			SyncWordTemp [ j ] := Tab_TimeCodeFrame [ i -16 + j ]; 				(* Part of the Array that contain all bits read from the Timecode Frame *)
+		END_FOR
+		IF MEMCMP( ADR(SyncWord) , ADR(SyncWordTemp), 16) = 0 THEN		(* We compare this part with the SynWord *)
+			IF i >= 80 THEN	(* A SyncWord is found and all bits that are in this frame are available *)
+					MEMCPY( ADR(LastTimeCodeFrame) , ADR(Tab_TimeCodeFrame) + i  - 80, 80);	(* We extract this TimeCode Frame from the complete array *)
+					
+					_SMPTE_TimeStructExt.FramesUnits := LastTimeCodeFrame [0] * 1
+													+LastTimeCodeFrame [1] * 2
+													+LastTimeCodeFrame [2] * 4
+													+LastTimeCodeFrame [3] * 8;
+													
+					_SMPTE_TimeStructExt.FramesTens :=  LastTimeCodeFrame [8] * 10
+													+LastTimeCodeFrame [9] * 20;
+													
+					_SMPTE_TimeStructExt.SecondsUnits := LastTimeCodeFrame [16] * 1
+													 +LastTimeCodeFrame [17] * 2
+													 +LastTimeCodeFrame [18] * 4
+													 +LastTimeCodeFrame [19] * 8;
+													 
+					_SMPTE_TimeStructExt.SecondsTens := LastTimeCodeFrame [24] * 10
+													+LastTimeCodeFrame [25] * 20
+													+LastTimeCodeFrame [26] * 40;
+													
+					_SMPTE_TimeStructExt.MinutesUnits := LastTimeCodeFrame [32] * 1
+													 +LastTimeCodeFrame [33] * 2
+													 +LastTimeCodeFrame [34] * 4
+													 +LastTimeCodeFrame [35] * 8;
+													 
+					_SMPTE_TimeStructExt.MinutesTens := LastTimeCodeFrame [40] * 10
+													+LastTimeCodeFrame [41] * 20
+													+LastTimeCodeFrame [42] * 40;
+													
+					_SMPTE_TimeStructExt.HoursUnits := LastTimeCodeFrame [48] * 1
+												   +LastTimeCodeFrame [49] * 2
+												   +LastTimeCodeFrame [50] * 4
+												   +LastTimeCodeFrame [51] * 8;
+												   
+					_SMPTE_TimeStructExt.HoursTens := LastTimeCodeFrame [56] * 10
+												   +LastTimeCodeFrame [57] * 20;
+												   
+
+					_SMPTE_TimeStructExt.Frames := _SMPTE_TimeStructExt.FramesTens + _SMPTE_TimeStructExt.FramesUnits;
+					_SMPTE_TimeStructExt.Seconds := _SMPTE_TimeStructExt.SecondsTens + _SMPTE_TimeStructExt.SecondsUnits;
+					_SMPTE_TimeStructExt.Minutes := _SMPTE_TimeStructExt.MinutesTens + _SMPTE_TimeStructExt.MinutesUnits;
+					_SMPTE_TimeStructExt.Hours := _SMPTE_TimeStructExt.HoursTens + _SMPTE_TimeStructExt.HoursUnits;
+					
+					_SMPTE_TimeStruct.Frames  := _SMPTE_TimeStructExt.Frames;
+					_SMPTE_TimeStruct.Seconds := _SMPTE_TimeStructExt.Seconds;
+					_SMPTE_TimeStruct.Minutes := _SMPTE_TimeStructExt.Minutes;
+					_SMPTE_TimeStruct.Hours   := _SMPTE_TimeStructExt.Hours;
+					
+					_Time_String := CONCAT ( INT_TO_STRING (_SMPTE_TimeStructExt.Hours), ' : ');
+					_Time_String := CONCAT (_Time_String,  INT_TO_STRING (_SMPTE_TimeStructExt.Minutes));
+					_Time_String := CONCAT (_Time_String,  ' : ');
+					_Time_String := CONCAT (_Time_String,  INT_TO_STRING (_SMPTE_TimeStructExt.Seconds));
+					_Time_String := CONCAT (_Time_String,  ' : ');
+					_Time_String := CONCAT (_Time_String,  INT_TO_STRING (_SMPTE_TimeStructExt.Frames));
+	
+					_FrameRead := _FrameRead + 1; 							(* Number of frame read *)
+	
+					FOR h:=1 TO (TimeCodeFrame - i ) DO							(* Now, we suppress this TimeCode frame from the array of bit, and shift this array *)
+						Tab_TimeCodeFrame [ h ] := Tab_TimeCodeFrame [ h + i ];
+					END_FOR
+					FOR h:= (TimeCodeFrame - i ) TO TimeCodeFrame DO
+						Tab_TimeCodeFrame [ h ] := 0;
+					END_FOR
+	
+					 Index_Tab_TimeCodeFrame := Index_Tab_TimeCodeFrame - i ;		(* Next bit in the frame will be place here now *)
+	
+					EXIT ;
+			END_IF
+		END_IF
+	END_FOR
+	
+	IF Index_Tab_TimeCodeFrame > TimeCodeFrame THEN	(* There is a problem : We should be able to catch a SyncWord in a so big array a Timecode bit. Normally a SyncWord each 80 bits*)
+		Index_Tab_TimeCodeFrame_Error := Index_Tab_TimeCodeFrame_Error + 1;
+		Reset := TRUE;
+	END_IF
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="FrameError" Id="{03578776-1532-4c30-ada0-3d0357376916}" FolderPath="Public\">
+      <Declaration><![CDATA[PROPERTY FrameError : DWORD]]></Declaration>
+      <Get Name="Get" Id="{9edfd9cd-9f56-4b1c-a4c6-b03e88509c3c}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[FrameError := _FrameError;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="FrameRate" Id="{6fffa2c8-52f8-42fc-a8a1-f47a3515b4a3}" FolderPath="Public\">
+      <Declaration><![CDATA[PROPERTY FrameRate : REAL]]></Declaration>
+      <Get Name="Get" Id="{84833cd2-75cb-400e-ae49-74f4341f2b83}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[FrameRate := _FrameRate;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="FramesReceived" Id="{08ead792-9bfd-46b7-907c-17e07ff0c445}" FolderPath="Public\">
+      <Declaration><![CDATA[PROPERTY FramesReceived : DWORD]]></Declaration>
+      <Get Name="Get" Id="{d8c1dae0-2de7-4eff-9f9f-7ae27fdeaaff}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[FramesReceived := _FrameRead;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="Receiving" Id="{d58d1765-78e9-47da-8878-5bf02883f926}" FolderPath="Public\">
+      <Declaration><![CDATA[PROPERTY Receiving : BOOL]]></Declaration>
+      <Get Name="Get" Id="{7c4f89ac-ba99-4c0b-b8a8-ff0c952610be}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Receiving := _Receiving;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="Reset" Id="{ea66a82e-4013-49a6-84eb-c43177b9183d}" FolderPath="Public\">
+      <Declaration><![CDATA[PROPERTY Reset : BOOL]]></Declaration>
+      <Set Name="Set" Id="{d152d58f-aacd-4538-9bab-16be1af8d163}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[_Reset := Reset;]]></ST>
+        </Implementation>
+      </Set>
+    </Property>
+    <Method Name="SignalCheck" Id="{b7aa5250-b52f-43a4-a46c-ee472e710d83}" FolderPath="Internal\">
+      <Declaration><![CDATA[METHOD INTERNAL SignalCheck : BOOL
+VAR
+	itr_X : INT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[// Check for EL3702 is receiving signals, plugged into device
+_Receiving := FALSE;
+FOR itr_X := 1 TO 100 DO
+	IF EL3702_Samples[itr_X] >= SignalThreshold OR EL3702_Samples[itr_X] <= (SignalThreshold * -1) THEN
+		SignalCheck := TRUE;
+		_Receiving := TRUE;
+		EXIT;
+	END_IF
+END_FOR]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="TimeString" Id="{7b22b201-b05c-4201-ab52-7ca05f9e285e}" FolderPath="Public\">
+      <Declaration><![CDATA[PROPERTY TimeString : REFERENCE TO STRING]]></Declaration>
+      <Get Name="Get" Id="{45f9f5da-559e-45e3-b778-ef2bdb3a0076}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[TimeString REF= _Time_String;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="TimeStruct" Id="{46645e6b-9313-4593-a5c1-9ee7700a093c}" FolderPath="Public\">
+      <Declaration><![CDATA[PROPERTY TimeStruct : REFERENCE TO ST_SMPTE_TimeStruct]]></Declaration>
+      <Get Name="Get" Id="{db635fd1-f5d1-4e6e-9f23-1ab8c1e78fa0}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[TimeStruct REF= _SMPTE_TimeStruct;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="TimeStructExt" Id="{9c8e6a66-3f27-49aa-bd8e-89ea34371f3c}" FolderPath="Public\">
+      <Declaration><![CDATA[PROPERTY TimeStructExt : REFERENCE TO ST_SMPTE_TimeStructExt]]></Declaration>
+      <Get Name="Get" Id="{644e3e8a-0352-417f-89ce-fdf706748e7f}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[TimeStructExt REF= _SMPTE_TimeStructExt;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <LineIds Name="FB_SMPTE_Receiver">
+      <LineId Id="9" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_SMPTE_Receiver.Cycle">
+      <LineId Id="184" Count="0" />
+      <LineId Id="178" Count="0" />
+      <LineId Id="181" Count="2" />
+      <LineId Id="179" Count="0" />
+      <LineId Id="6" Count="7" />
+      <LineId Id="144" Count="0" />
+      <LineId Id="16" Count="69" />
+      <LineId Id="159" Count="0" />
+      <LineId Id="86" Count="3" />
+      <LineId Id="151" Count="0" />
+      <LineId Id="90" Count="1" />
+      <LineId Id="150" Count="0" />
+      <LineId Id="92" Count="0" />
+      <LineId Id="148" Count="1" />
+      <LineId Id="95" Count="0" />
+      <LineId Id="152" Count="0" />
+      <LineId Id="96" Count="2" />
+      <LineId Id="158" Count="0" />
+      <LineId Id="99" Count="0" />
+      <LineId Id="153" Count="1" />
+      <LineId Id="102" Count="0" />
+      <LineId Id="157" Count="0" />
+      <LineId Id="103" Count="2" />
+      <LineId Id="156" Count="0" />
+      <LineId Id="106" Count="3" />
+      <LineId Id="155" Count="0" />
+      <LineId Id="110" Count="1" />
+      <LineId Id="166" Count="0" />
+      <LineId Id="112" Count="4" />
+      <LineId Id="167" Count="5" />
+      <LineId Id="117" Count="26" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_SMPTE_Receiver.FrameError.Get">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_SMPTE_Receiver.FrameRate.Get">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_SMPTE_Receiver.FramesReceived.Get">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_SMPTE_Receiver.Receiving.Get">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_SMPTE_Receiver.Reset.Set">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_SMPTE_Receiver.SignalCheck">
+      <LineId Id="12" Count="0" />
+      <LineId Id="14" Count="0" />
+      <LineId Id="5" Count="0" />
+      <LineId Id="7" Count="0" />
+      <LineId Id="9" Count="0" />
+      <LineId Id="13" Count="0" />
+      <LineId Id="11" Count="0" />
+      <LineId Id="10" Count="0" />
+      <LineId Id="8" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_SMPTE_Receiver.TimeString.Get">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_SMPTE_Receiver.TimeStruct.Get">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_SMPTE_Receiver.TimeStructExt.Get">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

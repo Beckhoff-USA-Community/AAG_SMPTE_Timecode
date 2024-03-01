@@ -1,0 +1,120 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="MAIN_Sender" Id="{83453181-9632-4c50-a095-465548438677}" SpecialFunc="None">
+    <Declaration><![CDATA[PROGRAM MAIN_Sender
+VAR
+	// SMPTE Time Controller
+	SMPTE_TimeController : FB_SMPTE_TimeController(eTimeSource := E_SMPTE_TimeController_Source.ExtTimeProvider, eFrameMode := E_SMPTE_FrameMode.FPS_25);
+	// SMPTE Sender
+	SMPTE_Sender 	: FB_SMPTE_Sender(ipSMPTE_TimeController := SMPTE_TimeController);
+	
+	// External Time Source
+	nSysTime AT %I* : ULINT;
+	
+	// Enable the sender
+	bEnableSending: BOOL;
+	// Disable the sender
+	bDisableSending: BOOL;
+	// Error status of sender
+	bSMPTE_Error: BOOL;
+	// Enable Status
+	bSMPTE_Enabled: BOOL;
+	
+	// Play the timeline
+	bPlay: BOOL;
+	// Pause the timeline
+	bPause: BOOL;
+	// Stop the timeline
+	bStop: BOOL;
+	// Reset the timeline
+	bReset: BOOL;
+	
+	// View the current time struct being send
+	stSMPTE_TimeStruct : ST_SMPTE_TimeStruct;
+
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[(**********************)
+(**** SMPTE Sender ****)
+(**********************)
+
+// Call once each cycle
+SMPTE_TimeController.Cycle();
+SMPTE_Sender.Cycle();
+
+// Enable sending the SMPTE signal
+IF SMPTE_Sender.EnableSending(bExecute := bEnableSending) THEN
+	bEnableSending := FALSE;
+END_IF
+
+// Disable sending the SMPTE signal
+IF SMPTE_Sender.DisableSending(bExecute := bDisableSending) THEN
+	bDisableSending := FALSE;
+END_IF
+
+// Check if errors on SMPTE Sender
+bSMPTE_Error := SMPTE_Sender.Error;
+// Check if enabled
+bSMPTE_Enabled := SMPTE_Sender.Enabled;
+
+
+
+(********************************)
+(**** SMPTE Time Conectoller ****)
+(********************************)
+
+// Assign External Time Source
+SMPTE_TimeController.AssignExternalTimeSource(nSysTime);
+
+// Playback controls
+IF SMPTE_TimeController.Play(bExecute := bPlay) THEN
+	bPlay := FALSE;
+END_IF
+
+IF SMPTE_TimeController.Pause(bExecute := bPause) THEN
+	bPause := FALSE;
+END_IF
+
+IF SMPTE_TimeController.Stop(bExecute := bStop) THEN
+	bStop := FALSE;
+END_IF
+
+IF SMPTE_TimeController.Reset(bExecute := bReset) THEN
+	bReset := FALSE;
+END_IF
+
+// Sample of Timecode being send
+stSMPTE_TimeStruct := SMPTE_TimeController.TimeStruct;]]></ST>
+    </Implementation>
+    <LineIds Name="MAIN_Sender">
+      <LineId Id="176" Count="1" />
+      <LineId Id="174" Count="1" />
+      <LineId Id="173" Count="0" />
+      <LineId Id="114" Count="0" />
+      <LineId Id="111" Count="0" />
+      <LineId Id="125" Count="0" />
+      <LineId Id="116" Count="0" />
+      <LineId Id="115" Count="0" />
+      <LineId Id="117" Count="1" />
+      <LineId Id="126" Count="0" />
+      <LineId Id="121" Count="2" />
+      <LineId Id="120" Count="0" />
+      <LineId Id="128" Count="0" />
+      <LineId Id="127" Count="0" />
+      <LineId Id="129" Count="0" />
+      <LineId Id="170" Count="0" />
+      <LineId Id="168" Count="0" />
+      <LineId Id="217" Count="1" />
+      <LineId Id="132" Count="0" />
+      <LineId Id="215" Count="1" />
+      <LineId Id="214" Count="0" />
+      <LineId Id="213" Count="0" />
+      <LineId Id="210" Count="0" />
+      <LineId Id="167" Count="0" />
+      <LineId Id="211" Count="0" />
+      <LineId Id="133" Count="17" />
+      <LineId Id="130" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

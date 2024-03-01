@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <DUT Name="ST_EL4732_State" Id="{f4239a90-429c-44e5-9bb5-2fa6eff8f1ed}">
+    <Declaration><![CDATA[TYPE ST_EL4732_State :
+STRUCT
+	WcState AT %I*: BYTE;
+	ImfoData_State AT %I*: UINT;
+	InfoData_DcOutputShift AT %I*: DINT;
+	InfoData_DDcInputShift AT %I*: DINT;
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

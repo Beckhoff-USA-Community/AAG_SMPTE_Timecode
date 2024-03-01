@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <DUT Name="E_SMPTE_FrameMode" Id="{691e9a67-cd56-4e9d-ba55-6877410c59c3}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_SMPTE_FrameMode :
+(
+	FPS_25
+);
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <DUT Name="E_SMPTE_TimeController_Mode" Id="{708ee321-2a2e-4e1c-b6f6-f4f93d0c58db}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_SMPTE_TimeController_Mode :
+(
+	Stopped := 0,
+	Playing := 1,
+	Paused := 2
+);
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

@@ -1,0 +1,414 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="FB_SMPTE_Sender" Id="{fa9b6597-02f1-4a2f-8b91-7debd998809b}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_SMPTE_Sender
+VAR
+	// Analog Signal Output
+	aSMPTE_out AT%Q*: ARRAY[0..79] OF E_SMPTE_AnalogValue;
+	
+	// Status Variables
+	_bEnabled: BOOL; // Enabled
+	_bError: BOOL;	// becomes true, if plc cycle time <> 20ms	
+	_bReady: BOOL;	// two cycles are needed to transmitt a comlete message - the FB accepts data only if READY!
+	
+	// SMPTE Time Contrller Object
+	_ipSMPTE_TimeController : I_SMPTE_TimeController;
+		
+	// Internal Variables
+	eCurrentPart: E_SMPTE_PartOfFrame := E_SMPTE_PartOfFrame.first;
+	nPos: BYTE;
+	aTmp: ARRAY[0..3] OF BOOL;
+
+	// Internal Time Struct
+	_stSMPTE_TimeStruct: ST_SMPTE_TimeStruct;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{6fb78552-f1ce-402a-9400-d9cf0b862624}" />
+    <Folder Name="Public" Id="{b2ef0e1f-b915-4031-9d20-b3fe196f3da5}" />
+    <Method Name="ChangePart" Id="{35b98947-d7dd-4c8f-8ad8-f45ca2c336dc}" FolderPath="Internal\">
+      <Declaration><![CDATA[METHOD INTERNAL ChangePart  : HResult
+VAR_IN_OUT
+	eCurrentPartOfFrame : E_SMPTE_PartOfFrame;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[eCurrentPartOfFrame := sel(eCurrentPartOfFrame = E_SMPTE_PartOfFrame.first, E_SMPTE_PartOfFrame.first, E_SMPTE_PartOfFrame.second);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Cycle" Id="{c4f17da0-b2cf-4d40-8af7-0b1db351f566}" FolderPath="Public\">
+      <Declaration><![CDATA[METHOD Cycle : BOOL
+VAR_INST
+	rTrigEnable: R_TRIG;
+	fTrigEnable: F_TRIG;
+	// Check if there is a timing error
+	rtTimeError : R_TRIG;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[// Check timing error and task time
+rtTimeError(CLK := UDINT_TO_LREAL(_TaskInfo[GETCURTASKINDEXEX()].CycleTime) / 10_000 <> 20);
+IF rtTimeError.Q THEN
+	ADSLOGSTR( msgCtrlMask := ADSLOG_MSGTYPE_ERROR OR ADSLOG_MSGTYPE_MSGBOX, msgFmtStr := 'PLC SMPTE Sender: Execution Time Not Valid, Please set to 20ms','');
+END_IF
+
+rTrigEnable(CLK := _bEnabled);
+fTrigEnable(CLK := _bEnabled);
+
+IF fTrigEnable.Q THEN
+	_bReady := FALSE;
+ELSIF rTrigEnable.Q THEN
+	eCurrentPart := E_SMPTE_PartOfFrame.first;
+	// cycle time using this FB must be 20ms - reason: Oversampling terminal!
+	_bError := UDINT_TO_LREAL(_TaskInfo[GETCURTASKINDEXEX()].CycleTime) / 10_000 <> 20;
+END_IF	
+
+// Check if time source is valid and configured
+IF (_ipSMPTE_TimeController = 0) THEN
+	_bError := TRUE;
+END_IF
+
+// Check if there are errors or if no enabled
+IF NOT _bEnabled OR _bError THEN
+	RETURN;
+END_IF
+	
+nPos := 0;
+IF eCurrentPart = E_SMPTE_PartOfFrame.first THEN
+	_stSMPTE_TimeStruct := _ipSMPTE_TimeController.TimeStruct;	// accept input value now!
+	{region 'Frames (including userbits)'}
+	Write_4Bits(aSMPTE_out,nPos, GetBits(_stSMPTE_TimeStruct.Frames, FALSE));
+	Write_4Bits(aSMPTE_out,nPos, GetBits(0, TRUE));          
+	Write_4Bits(aSMPTE_out,nPos, GetBits(_stSMPTE_TimeStruct.Frames,TRUE));
+	Write_4Bits(aSMPTE_out,nPos, GetBits(0, TRUE));          
+	{endregion}                                              
+                                                             
+	{region 'Seconds (including userbits'}                   
+	Write_4Bits(aSMPTE_out,nPos, GetBits(_stSMPTE_TimeStruct.Seconds, FALSE));
+	Write_4Bits(aSMPTE_out,nPos, GetBits(0, TRUE));          
+	Write_4Bits(aSMPTE_out,nPos, GetBits(_stSMPTE_TimeStruct.Seconds,TRUE));
+	Write_4Bits(aSMPTE_out,nPos, GetBits(0, TRUE));          
+	{endregion}                                              
+                                                             
+	{region 'Minutes - Units only!'}                         
+	Write_4Bits(aSMPTE_out,nPos, GetBits(_stSMPTE_TimeStruct.Minutes, FALSE));
+	Write_4Bits(aSMPTE_out,nPos, GetBits(0, TRUE));          
+	{endregion}                                              
+                                                             
+	_bReady := FALSE; 	                                     
+		                                                     
+ELSE // second part of the complete SMPTE Frame              
+	{region 'Minutes - Tens only!'}                          
+	Write_4Bits(aSMPTE_out,nPos, GetBits(_stSMPTE_TimeStruct.Minutes, TRUE));
+	Write_4Bits(aSMPTE_out,nPos, GetBits(0, TRUE));          
+	{endregion}                                              
+                                                             
+	{region 'hours (including userbits'}                     
+	Write_4Bits(aSMPTE_out,nPos, GetBits(_stSMPTE_TimeStruct.Hours, FALSE));
+	Write_4Bits(aSMPTE_out,nPos, GetBits(0, TRUE));          
+	Write_4Bits(aSMPTE_out,nPos, GetBits(_stSMPTE_TimeStruct.Hours,TRUE));
+	Write_4Bits(aSMPTE_out,nPos, GetBits(0, TRUE));
+	{endregion}
+
+	{region 'Syncword'}
+	WriteSyncWord(aSMPTE_out,nPos);
+	{endregion}
+		 
+	_bReady := TRUE;			 
+END_IF
+
+// one complete SMPTE frame always consists of two parts (2*20ms):
+ChangePart(eCurrentPartOfFrame := eCurrentPart);
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="DisableSending" Id="{a02daaf5-529e-4d33-b4ad-7c4e06af4d7a}" FolderPath="Public\">
+      <Declaration><![CDATA[METHOD DisableSending : BOOL
+VAR_INPUT
+	bExecute	: BOOL;
+END_VAR
+VAR_INST
+	rtExecute : R_TRIG;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[rtExecute(CLK := bExecute);
+IF rtExecute.Q THEN
+	_bEnabled := FALSE;
+	// Return TRUE
+	DisableSending := TRUE;
+END_IF
+]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="Enabled" Id="{69ea71fa-5910-43b6-a132-137394e252f7}" FolderPath="Public\">
+      <Declaration><![CDATA[PROPERTY Enabled : BOOL]]></Declaration>
+      <Get Name="Get" Id="{622cd23c-d35f-4032-bb4e-fa2b72a1b29d}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Enabled := _bEnabled;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="EnableSending" Id="{b9b3c1ba-9eab-46af-84bf-d02fee061cd8}" FolderPath="Public\">
+      <Declaration><![CDATA[METHOD EnableSending : BOOL
+VAR_INPUT
+	bExecute	: BOOL;
+END_VAR
+VAR_INST
+	rtExecute : R_TRIG;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[rtExecute(CLK := bExecute);
+IF rtExecute.Q THEN
+	_bEnabled := TRUE;
+	// Return TRUE
+	EnableSending := TRUE;
+END_IF
+]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="Error" Id="{31d677ee-0384-4670-89b9-6a6cbc522c49}" FolderPath="Public\">
+      <Declaration><![CDATA[PROPERTY Error : BOOL]]></Declaration>
+      <Get Name="Get" Id="{b1302bdb-e0ef-49f1-ab13-51b27fc08104}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="FB_init" Id="{e73d4ddf-ffbe-43e0-8599-cc85c2758b6e}" FolderPath="Public\">
+      <Declaration><![CDATA[METHOD FB_init : BOOL
+VAR_INPUT
+	bInitRetains : BOOL; // if TRUE, the retain variables are initialized (warm start / cold start)
+	bInCopyCode : BOOL;  // if TRUE, the instance afterwards gets moved into the copy code (online change)
+	ipSMPTE_TimeController : I_SMPTE_TimeController;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_ipSMPTE_TimeController := ipSMPTE_TimeController;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="GetBits" Id="{f66cfb4a-d56d-42f7-8aad-36819eb9ad4f}" FolderPath="Internal\">
+      <Declaration><![CDATA[METHOD INTERNAL GetBits : ARRAY[0..3] OF BOOL
+VAR_INPUT
+	nValue: BYTE;
+	bGetTens: BOOL;
+END_VAR
+VAR
+	i: SINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FOR i:= 3 TO 0 BY -1 DO
+	GetBits[i] := nValue >= 10* EXPT(2,i);
+	nValue := LREAL_TO_BYTE(SEL(GetBits[i], nValue, nValue - (10* EXPT(2,i))));
+END_FOR
+
+IF bGetTens THEN
+	RETURN;
+END_IF
+
+FOR i:= 3 TO 0 BY -1 DO
+	GetBits[i] := nValue >= EXPT(2,i);
+	nValue := LREAL_TO_BYTE(SEL(GetBits[i], nValue, nValue - EXPT(2,i)));
+END_FOR
+]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="Ready" Id="{bd7d3ee9-616e-4f94-971a-f4335acd3ec5}" FolderPath="Public\">
+      <Declaration><![CDATA[PROPERTY Ready : BOOL]]></Declaration>
+      <Get Name="Get" Id="{f9191441-b0d6-4f40-9721-feb41fb0b0b8}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="Write_4Bits" Id="{ef270705-27b4-4c79-a37b-b27b61d5cb1c}" FolderPath="Internal\">
+      <Declaration><![CDATA[METHOD INTERNAL Write_4Bits : HResult
+VAR_IN_OUT
+	aDataOut: ARRAY[0..79] OF E_SMPTE_AnalogValue;
+	nPos: BYTE;
+END_VAR
+
+VAR_input
+	aValue: ARRAY[0..3] OF BOOL;
+END_VAR
+
+VAR
+	ePreviousAnalogValue: E_SMPTE_AnalogValue;
+	i: SINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF nPos = 0 THEN
+	ePreviousAnalogValue := aDataOut[79];
+	Write_4Bits := 1;
+ELSE
+	ePreviousAnalogValue := aDataOut[nPos-1];
+	Write_4Bits := S_OK;
+END_IF
+
+FOR i:= 0 TO 3 DO
+	IF aValue[i] THEN
+		IF ePreviousAnalogValue = E_SMPTE_AnalogValue.HIGH THEN
+			aDataOut[nPos] := E_SMPTE_AnalogValue.LOW;
+			aDataOut[nPos + 1] := E_SMPTE_AnalogValue.HIGH;
+		ELSE
+			aDataOut[nPos] := E_SMPTE_AnalogValue.HIGH;
+			aDataOut[nPos + 1] := E_SMPTE_AnalogValue.LOW;
+		END_IF
+	ELSE
+		IF ePreviousAnalogValue = E_SMPTE_AnalogValue.HIGH THEN
+			aDataOut[nPos] := aDataOut[nPos + 1] := E_SMPTE_AnalogValue.LOW;
+		ELSE
+			aDataOut[nPos] := aDataOut[nPos + 1] := E_SMPTE_AnalogValue.HIGH;
+		END_IF
+	END_IF
+	ePreviousAnalogValue := aDataOut[nPos + 1];
+	nPos := nPos + 2;
+END_FOR	]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="WriteSyncword" Id="{06232c54-f08b-4bf1-80a5-b3b34237b093}" FolderPath="Internal\">
+      <Declaration><![CDATA[METHOD INTERNAL WriteSyncword: HRESULT
+VAR_IN_OUT
+	aDataOut: ARRAY[0..79] OF E_SMPTE_AnalogValue;
+	nPos: BYTE;
+END_VAR
+
+VAR
+	i: INT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[// Syncword: 0011.1111.1111.1101
+
+WriteSyncword	:= S_OK;
+IF nPos <> 48 THEN
+	WriteSyncword	:= -3;
+	RETURN;
+ELSIF aDataOut[47]=  E_SMPTE_AnalogValue.HIGH THEN // create syncword based on the last analog value ...
+	// 0011
+	aDataOut[nPos] := E_SMPTE_AnalogValue.LOW; 		nPos := nPos + 1;
+	aDataOut[nPos] := E_SMPTE_AnalogValue.LOW; 		nPos := nPos + 1;
+	aDataOut[nPos] := E_SMPTE_AnalogValue.HIGH; 		nPos := nPos + 1;
+	aDataOut[nPos] := E_SMPTE_AnalogValue.HIGH; 		nPos := nPos + 1;
+	aDataOut[nPos] := E_SMPTE_AnalogValue.LOW; 		nPos := nPos + 1;
+	aDataOut[nPos] := E_SMPTE_AnalogValue.HIGH; 		nPos := nPos + 1;
+	aDataOut[nPos] := E_SMPTE_AnalogValue.LOW; 		nPos := nPos + 1;
+	aDataOut[nPos] := E_SMPTE_AnalogValue.HIGH; 		nPos := nPos + 1;
+	
+	// 2* 1111
+	FOR i:= 0 TO 1 DO 
+		aDataOut[nPos] := E_SMPTE_AnalogValue.LOW; 		nPos := nPos + 1;
+		aDataOut[nPos] := E_SMPTE_AnalogValue.HIGH; 		nPos := nPos + 1;
+		aDataOut[nPos] := E_SMPTE_AnalogValue.LOW; 		nPos := nPos + 1;
+		aDataOut[nPos] := E_SMPTE_AnalogValue.HIGH; 		nPos := nPos + 1;
+		aDataOut[nPos] := E_SMPTE_AnalogValue.LOW; 		nPos := nPos + 1;
+		aDataOut[nPos] := E_SMPTE_AnalogValue.HIGH; 		nPos := nPos + 1;
+		aDataOut[nPos] := E_SMPTE_AnalogValue.LOW; 		nPos := nPos + 1;
+		aDataOut[nPos] := E_SMPTE_AnalogValue.HIGH; 		nPos := nPos + 1;
+	END_FOR
+	
+	// 1101
+	aDataOut[nPos] := E_SMPTE_AnalogValue.LOW; 		nPos := nPos + 1;
+	aDataOut[nPos] := E_SMPTE_AnalogValue.HIGH; 		nPos := nPos + 1;
+	aDataOut[nPos] := E_SMPTE_AnalogValue.LOW; 		nPos := nPos + 1;
+	aDataOut[nPos] := E_SMPTE_AnalogValue.HIGH; 		nPos := nPos + 1;
+	aDataOut[nPos] := E_SMPTE_AnalogValue.LOW; 		nPos := nPos + 1;
+	aDataOut[nPos] := E_SMPTE_AnalogValue.LOW; 		nPos := nPos + 1;
+	aDataOut[nPos] := E_SMPTE_AnalogValue.HIGH; 		nPos := nPos + 1;
+	aDataOut[nPos] := E_SMPTE_AnalogValue.LOW; 		nPos := nPos + 1;
+ELSE
+	// 0011
+	aDataOut[nPos] := E_SMPTE_AnalogValue.HIGH; 		nPos := nPos + 1;
+	aDataOut[nPos] := E_SMPTE_AnalogValue.HIGH; 		nPos := nPos + 1;
+	aDataOut[nPos] := E_SMPTE_AnalogValue.LOW; 		nPos := nPos + 1;
+	aDataOut[nPos] := E_SMPTE_AnalogValue.LOW; 		nPos := nPos + 1;
+	aDataOut[nPos] := E_SMPTE_AnalogValue.HIGH; 		nPos := nPos + 1;
+	aDataOut[nPos] := E_SMPTE_AnalogValue.LOW; 		nPos := nPos + 1;
+	aDataOut[nPos] := E_SMPTE_AnalogValue.HIGH; 		nPos := nPos + 1;
+	aDataOut[nPos] := E_SMPTE_AnalogValue.LOW; 		nPos := nPos + 1;
+	
+	// 2* 1111
+	FOR i:= 0 TO 1 DO 
+		aDataOut[nPos] := E_SMPTE_AnalogValue.HIGH; 		nPos := nPos + 1;
+		aDataOut[nPos] := E_SMPTE_AnalogValue.LOW; 		nPos := nPos + 1;
+		aDataOut[nPos] := E_SMPTE_AnalogValue.HIGH; 		nPos := nPos + 1;
+		aDataOut[nPos] := E_SMPTE_AnalogValue.LOW; 		nPos := nPos + 1;
+		aDataOut[nPos] := E_SMPTE_AnalogValue.HIGH; 		nPos := nPos + 1;
+		aDataOut[nPos] := E_SMPTE_AnalogValue.LOW; 		nPos := nPos + 1;
+		aDataOut[nPos] := E_SMPTE_AnalogValue.HIGH; 		nPos := nPos + 1;
+		aDataOut[nPos] := E_SMPTE_AnalogValue.LOW; 		nPos := nPos + 1;
+	END_FOR
+	
+	// 1101
+	aDataOut[nPos] := E_SMPTE_AnalogValue.HIGH; 		nPos := nPos + 1;
+	aDataOut[nPos] := E_SMPTE_AnalogValue.LOW; 		nPos := nPos + 1;
+	aDataOut[nPos] := E_SMPTE_AnalogValue.HIGH; 		nPos := nPos + 1;
+	aDataOut[nPos] := E_SMPTE_AnalogValue.LOW; 		nPos := nPos + 1;
+	aDataOut[nPos] := E_SMPTE_AnalogValue.HIGH; 		nPos := nPos + 1;
+	aDataOut[nPos] := E_SMPTE_AnalogValue.HIGH; 		nPos := nPos + 1;
+	aDataOut[nPos] := E_SMPTE_AnalogValue.LOW; 		nPos := nPos + 1;
+	aDataOut[nPos] := E_SMPTE_AnalogValue.HIGH; 		nPos := nPos + 1;
+END_IF
+]]></ST>
+      </Implementation>
+    </Method>
+    <LineIds Name="FB_SMPTE_Sender">
+      <LineId Id="9" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_SMPTE_Sender.ChangePart">
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_SMPTE_Sender.Cycle">
+      <LineId Id="255" Count="0" />
+      <LineId Id="251" Count="2" />
+      <LineId Id="249" Count="1" />
+      <LineId Id="165" Count="7" />
+      <LineId Id="254" Count="0" />
+      <LineId Id="174" Count="57" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_SMPTE_Sender.DisableSending">
+      <LineId Id="11" Count="5" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_SMPTE_Sender.Enabled.Get">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_SMPTE_Sender.EnableSending">
+      <LineId Id="16" Count="5" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_SMPTE_Sender.Error.Get">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_SMPTE_Sender.FB_init">
+      <LineId Id="7" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_SMPTE_Sender.GetBits">
+      <LineId Id="14" Count="12" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_SMPTE_Sender.Ready.Get">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_SMPTE_Sender.Write_4Bits">
+      <LineId Id="18" Count="25" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_SMPTE_Sender.WriteSyncword">
+      <LineId Id="15" Count="70" />
+      <LineId Id="5" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

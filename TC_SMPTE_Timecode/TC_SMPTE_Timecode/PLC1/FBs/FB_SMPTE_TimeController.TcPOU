@@ -1,0 +1,434 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="FB_SMPTE_TimeController" Id="{f8bb69ee-4637-48a3-a2d0-76cda6a7f1f7}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_SMPTE_TimeController IMPLEMENTS I_SMPTE_TimeController
+VAR
+	// Internal Time Source mode
+	_eTimeSource : E_SMPTE_TimeController_Source;
+	
+	// Linked to TcCom Object for Time Provider if using Ext Mode
+	_TcExternalTimeSource : REFERENCE TO ULINT; 
+	
+	// Frame Mode
+	_eFrameMode: E_SMPTE_FrameMode := E_SMPTE_FrameMode.FPS_25;	// transmitting with 25 fps (frames per second)		
+	
+	// Used for DC Time
+	_dcTime	: T_DCTIME64;
+			
+	// SMPTE Time Struct
+	_stSMPTE_TimeStruct : ST_SMPTE_TimeStruct;
+	
+	// Reference time timestamp
+	_bRefTimeInit : BOOL;
+	
+	// Current Time Strunct
+	_CurrentTime :	TIMESTRUCT;
+		
+	// Current Time Value
+	_RefTime : T_DCTIME64;
+	
+	// Working Time Value
+	_WorkTime : T_DCTIME64;
+	
+	// Paused Time Value
+	_PauseTime : T_DCTIME64;
+	
+	// Mode Status
+	_eSMPTE_TimeController_Mode : E_SMPTE_TimeController_Mode;
+	
+	// Playing Status Variables
+	_Playing : BOOL;
+	
+	// Paused Status Variables
+	_Paused : BOOL;
+	
+	// Stopped Status Variables
+	_Stopped : BOOL;
+	
+	// Reset Control Variables
+	_Reset : BOOL;
+	
+	// Error, usually due to timesource
+	_Error : BOOL;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{2b65f861-1468-44d2-afff-c5982310faea}" />
+    <Folder Name="Public" Id="{408b811d-3e67-40c2-a780-467d316aa27d}" />
+    <Method Name="AssignExternalTimeSource" Id="{075f58a6-4c17-4017-b393-ea9de66e1cdb}" FolderPath="Public\">
+      <Declaration><![CDATA[METHOD AssignExternalTimeSource : BOOL
+VAR_INPUT
+	// Linked to TcCom Object for Time Provider if using Ext Mode
+	TcExternalTimeSource : REFERENCE TO ULINT; 
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_TcExternalTimeSource REF= TcExternalTimeSource;
+AssignExternalTimeSource := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Cycle" Id="{390174b8-583d-4a27-8493-8f04e04b0a12}" FolderPath="Public\">
+      <Declaration><![CDATA[METHOD Cycle : BOOL
+VAR_INST
+	_CalcTimeDiff : FB_EcExtSyncCalcTimeDiff64;
+	_bWasPaused : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[// Check Mode and compute time
+CASE _eSMPTE_TimeController_Mode OF
+	E_SMPTE_TimeController_Mode.Playing:
+	
+		// Get the working time
+		UpdateTime(_WorkTime); 
+		
+		// Get the reference clock
+		IF NOT _bRefTimeInit THEN
+			_RefTime := _WorkTime;
+			_bRefTimeInit := TRUE;
+		END_IF
+		
+		// Recovery from Pause
+		IF _bWasPaused THEN
+			_RefTime := _WorkTime - _PauseTime;
+			_bWasPaused := FALSE;
+		END_IF
+
+	E_SMPTE_TimeController_Mode.Paused:
+		IF NOT _bWasPaused THEN
+			_PauseTime := _WorkTime - _RefTime;
+			_bWasPaused := TRUE;
+		END_IF
+	
+	E_SMPTE_TimeController_Mode.Stopped:
+		// Stop the clock and reset
+		_bRefTimeInit := FALSE;
+		_bWasPaused := FALSE;
+		_PauseTime := 0;
+		_WorkTime := 0;
+		_RefTime := 0;
+END_CASE
+
+// If not paused, update the time stuct
+IF NOT (_eSMPTE_TimeController_Mode = E_SMPTE_TimeController_Mode.Paused) THEN
+	// Convert to time struct
+	_CurrentTime := DCTIME64_TO_SYSTEMTIME(_WorkTime - _RefTime);
+END_IF
+
+// Reset
+IF _Reset THEN
+	_bRefTimeInit := FALSE;
+	_bWasPaused := FALSE;
+	_PauseTime := 0;
+	_WorkTime := 0;
+	_RefTime := 0;
+	_Reset := FALSE;
+END_IF
+
+// Remove unused values
+_CurrentTime.wDay := 0;
+_CurrentTime.wDayOfWeek := 0;
+_CurrentTime.wMonth := 0;
+_CurrentTime.wYear := 0;
+
+
+]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="Error" Id="{89e42f92-8288-46ea-85ca-9fbb5c7fda50}" FolderPath="Public\">
+      <Declaration><![CDATA[PROPERTY Error : BOOL]]></Declaration>
+      <Get Name="Get" Id="{9ffa7fc2-2e0d-4231-a4b3-059f5e34fc65}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Error := _Error;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="FB_init" Id="{5a6ff915-c3ed-4b35-953c-62882b888f89}" FolderPath="Public\">
+      <Declaration><![CDATA[METHOD FB_init : BOOL
+VAR_INPUT
+	(* if TRUE, the retain variables are initialized (warm start / cold start)*)
+	bInitRetains	: BOOL;
+	(* if TRUE, the instance afterwards gets moved into the copy code (online change)*)
+	bInCopyCode	: BOOL;
+	(* Time Source*)
+	eTimeSource	: E_SMPTE_TimeController_Source;
+	(* Frame Mode, transmitting with 25 fps (frames per second) *)
+	eFrameMode : E_SMPTE_FrameMode := E_SMPTE_FrameMode.FPS_25;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_eTimeSource := eTimeSource;
+_eFrameMode := eFrameMode;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Pause" Id="{938eebb4-befc-4cdb-a04d-60e467c0199b}" FolderPath="Public\">
+      <Declaration><![CDATA[(* Will pause the time*)
+METHOD Pause : BOOL
+VAR_INPUT
+	bExecute	: BOOL;
+END_VAR
+VAR_INST
+	rtExecute : R_TRIG;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[rtExecute(CLK := bExecute);
+IF rtExecute.Q THEN
+	_eSMPTE_TimeController_Mode := E_SMPTE_TimeController_Mode.Paused;
+	// Return TRUE
+	Pause := TRUE;
+END_IF
+]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="Paused" Id="{a55c2cec-c422-4d6b-8f92-43a6f4f56a88}" FolderPath="Public\">
+      <Declaration><![CDATA[PROPERTY Paused : BOOL]]></Declaration>
+      <Get Name="Get" Id="{fa5d6a0b-45fa-425f-8332-a2f10fce1271}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Paused := _eSMPTE_TimeController_Mode = E_SMPTE_TimeController_Mode.Paused;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="Play" Id="{3fa81283-7721-4a58-8381-47eb503ec8d7}" FolderPath="Public\">
+      <Declaration><![CDATA[(* Starts the time*)
+METHOD Play : BOOL
+VAR_INPUT
+	bExecute	: BOOL;
+END_VAR
+VAR_INST
+	rtExecute :  R_TRIG;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[rtExecute(CLK := bExecute);
+IF rtExecute.Q THEN
+	_eSMPTE_TimeController_Mode := E_SMPTE_TimeController_Mode.Playing;
+	// Return TRUE
+	Play := TRUE;
+END_IF
+]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="Playing" Id="{e4ab9407-923c-41fa-a9fb-37f5fc227539}" FolderPath="Public\">
+      <Declaration><![CDATA[PROPERTY Playing : BOOL]]></Declaration>
+      <Get Name="Get" Id="{42ff8c89-15a9-4848-a3e3-809949b9725f}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Playing := _eSMPTE_TimeController_Mode = E_SMPTE_TimeController_Mode.Playing;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="Reset" Id="{e50c3f59-e027-470f-9b8b-a21fd6387ca6}" FolderPath="Public\">
+      <Declaration><![CDATA[(* Resets the time*)
+METHOD Reset : BOOL
+VAR_INPUT
+	bExecute	: BOOL;
+END_VAR
+VAR_INST
+	rtExecute :  R_TRIG;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[rtExecute(CLK := bExecute);
+IF rtExecute.Q THEN
+	_Reset := TRUE;
+	// Return TRUE
+	Reset := TRUE;
+END_IF
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Stop" Id="{acf87e6f-9f82-4d54-8ab6-d7517a2514d9}" FolderPath="Public\">
+      <Declaration><![CDATA[(* Will stop the time and reset to 00:00:00:00*)
+METHOD Stop : BOOL
+VAR_INPUT
+	bExecute	: BOOL;
+END_VAR
+VAR_INST
+	rtExecute :  R_TRIG;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[rtExecute(CLK := bExecute);
+IF rtExecute.Q THEN
+	_eSMPTE_TimeController_Mode := E_SMPTE_TimeController_Mode.Stopped;
+	// Return TRUE
+	Stop := TRUE;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="Stopped" Id="{202a74c6-2256-4db3-b2f1-9056fe5244d0}" FolderPath="Public\">
+      <Declaration><![CDATA[PROPERTY Stopped : BOOL]]></Declaration>
+      <Get Name="Get" Id="{852fe4f2-1aa9-4432-939e-08a9a1ce66c1}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Stopped := _eSMPTE_TimeController_Mode = E_SMPTE_TimeController_Mode.Stopped;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="TimeStruct" Id="{0a0e3c00-95f7-4867-9ca7-551dddaeda42}" FolderPath="Public\">
+      <Declaration><![CDATA[(* Returns the SMPTE_TimeStruct*)
+PROPERTY TimeStruct : REFERENCE TO ST_SMPTE_TimeStruct;
+]]></Declaration>
+      <Get Name="Get" Id="{d64b7452-a650-452e-b66c-a9e897a5750c}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[// Compute the Time Struct for SMPTE
+CASE _eFrameMode OF
+	E_SMPTE_FrameMode.FPS_25:
+		_stSMPTE_TimeStruct.Hours := WORD_TO_BYTE(_CurrentTime.wHour);
+		_stSMPTE_TimeStruct.Minutes := WORD_TO_BYTE(_CurrentTime.wMinute);
+		_stSMPTE_TimeStruct.Seconds := WORD_TO_BYTE(_CurrentTime.wSecond);
+		_stSMPTE_TimeStruct.Frames := DINT_TO_BYTE(TRUNC(WORD_TO_REAL(_CurrentTime.wMilliseconds)/(1000/25)));
+END_CASE
+
+// Return the time struct
+TimeStruct REF= _stSMPTE_TimeStruct;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="UpdateTime" Id="{8c1e3179-ca55-4fb3-9925-92f1bfd8ef47}" FolderPath="Internal\">
+      <Declaration><![CDATA[METHOD INTERNAL UpdateTime: BOOL;
+VAR_IN_OUT
+	// Current Time Struct
+	_CurDCTime : T_DCTIME64;
+END_VAR
+VAR_INST
+	// Used for NT Time
+	_ntTime	: TIMESTRUCT;
+	_ntGetTime : NT_GetTime;
+	// Ref Error Trig
+	rtRefError : R_TRIG; 
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[// Check for reference error on External time source
+rtRefError(CLK := NOT __ISVALIDREF(_TcExternalTimeSource));
+IF rtRefError.Q THEN
+	ADSLOGSTR( msgCtrlMask := ADSLOG_MSGTYPE_ERROR OR ADSLOG_MSGTYPE_MSGBOX, msgFmtStr := 'PLC SMPTE Time Controller: Invalid Timesource Provided or Disconnected: Use AssignExternalTimeSource()','');
+END_IF
+
+// Calculate the time
+CASE _eTimeSource OF
+	E_SMPTE_TimeController_Source.ExtTimeProvider:
+		(* External Time Provider *)
+		IF __ISVALIDREF(_TcExternalTimeSource) THEN
+			_dcTime := FILETIME64_TO_DCTIME64(_TcExternalTimeSource);
+			_CurDCTime := _dcTime;
+			_Error := FALSE;
+		ELSE
+			_eSMPTE_TimeController_Mode := E_SMPTE_TimeController_Mode.Stopped;
+			_Error := TRUE;
+		END_IF
+	
+	E_SMPTE_TimeController_Source.DC_Time:
+		(* External Time Provider *)
+		_dcTime := F_GetCurDcTickTime64();
+		_CurDCTime := _dcTime;
+	
+	E_SMPTE_TimeController_Source.NT_Time:
+		(* NT Time Provider *)
+		IF NOT _ntGetTime.BUSY THEN
+			_ntGetTime(start := TRUE, TIMESTR => _ntTime);
+		END_IF
+		_ntGetTime(start := FALSE);
+		_CurDCTime := SYSTEMTIME_TO_DCTIME64(_ntTime, 0, 0);
+END_CASE
+
+UpdateTime := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <LineIds Name="FB_SMPTE_TimeController">
+      <LineId Id="9" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_SMPTE_TimeController.AssignExternalTimeSource">
+      <LineId Id="11" Count="0" />
+      <LineId Id="10" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_SMPTE_TimeController.Cycle">
+      <LineId Id="206" Count="48" />
+      <LineId Id="256" Count="5" />
+      <LineId Id="264" Count="1" />
+      <LineId Id="104" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_SMPTE_TimeController.Error.Get">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_SMPTE_TimeController.FB_init">
+      <LineId Id="12" Count="0" />
+      <LineId Id="15" Count="0" />
+      <LineId Id="29" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_SMPTE_TimeController.Pause">
+      <LineId Id="8" Count="0" />
+      <LineId Id="12" Count="0" />
+      <LineId Id="16" Count="0" />
+      <LineId Id="13" Count="0" />
+      <LineId Id="15" Count="0" />
+      <LineId Id="14" Count="0" />
+      <LineId Id="11" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_SMPTE_TimeController.Paused.Get">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_SMPTE_TimeController.Play">
+      <LineId Id="11" Count="1" />
+      <LineId Id="16" Count="0" />
+      <LineId Id="19" Count="0" />
+      <LineId Id="14" Count="1" />
+      <LineId Id="8" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_SMPTE_TimeController.Playing.Get">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_SMPTE_TimeController.Reset">
+      <LineId Id="11" Count="2" />
+      <LineId Id="16" Count="0" />
+      <LineId Id="14" Count="1" />
+      <LineId Id="8" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_SMPTE_TimeController.Stop">
+      <LineId Id="11" Count="2" />
+      <LineId Id="17" Count="0" />
+      <LineId Id="14" Count="0" />
+      <LineId Id="8" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_SMPTE_TimeController.Stopped.Get">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_SMPTE_TimeController.TimeStruct.Get">
+      <LineId Id="13" Count="0" />
+      <LineId Id="5" Count="6" />
+      <LineId Id="14" Count="0" />
+      <LineId Id="12" Count="0" />
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_SMPTE_TimeController.UpdateTime">
+      <LineId Id="52" Count="0" />
+      <LineId Id="54" Count="0" />
+      <LineId Id="56" Count="1" />
+      <LineId Id="55" Count="0" />
+      <LineId Id="53" Count="0" />
+      <LineId Id="5" Count="3" />
+      <LineId Id="43" Count="1" />
+      <LineId Id="46" Count="0" />
+      <LineId Id="58" Count="0" />
+      <LineId Id="47" Count="2" />
+      <LineId Id="45" Count="0" />
+      <LineId Id="10" Count="11" />
+      <LineId Id="31" Count="0" />
+      <LineId Id="22" Count="1" />
+      <LineId Id="4" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

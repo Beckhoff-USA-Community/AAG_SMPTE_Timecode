@@ -1,0 +1,74 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <Itf Name="I_SMPTE_TimeController" Id="{a810304c-d5d0-495a-ae08-e61f0e71c0b0}">
+    <Declaration><![CDATA[INTERFACE I_SMPTE_TimeController
+]]></Declaration>
+    <Folder Name="Public" Id="{cb6fe0d9-0e20-4f3e-a7b6-4cfb726f81f8}" />
+    <Method Name="Cycle" Id="{55fd8665-20f5-4253-8b18-37d1a4d16b96}" FolderPath="Public\">
+      <Declaration><![CDATA[METHOD Cycle : BOOL
+VAR_INPUT
+END_VAR
+]]></Declaration>
+    </Method>
+    <Method Name="Pause" Id="{69b1702a-0797-4e36-bc96-01b210c9bc4a}" FolderPath="Public\">
+      <Declaration><![CDATA[// Will pause the time
+METHOD Pause : BOOL
+VAR_INPUT
+	bExecute : BOOL;
+END_VAR
+
+]]></Declaration>
+    </Method>
+    <Property Name="Paused" Id="{8aeba0db-db0f-4613-890e-d91813ba6553}" FolderPath="Public\">
+      <Declaration><![CDATA[PROPERTY Paused : BOOL]]></Declaration>
+      <Get Name="Get" Id="{727a3d17-5dad-4048-906e-6dcde70d97bc}">
+        <Declaration><![CDATA[]]></Declaration>
+      </Get>
+    </Property>
+    <Method Name="Play" Id="{2ba88ade-d166-4063-8ede-cd22dfce61ca}" FolderPath="Public\">
+      <Declaration><![CDATA[// Starts the time
+METHOD Play : BOOL
+VAR_INPUT
+	bExecute : BOOL;
+END_VAR
+]]></Declaration>
+    </Method>
+    <Property Name="Playing" Id="{1cc8b953-eb51-4c82-bc38-858549a6cce2}" FolderPath="Public\">
+      <Declaration><![CDATA[PROPERTY Playing : BOOL]]></Declaration>
+      <Get Name="Get" Id="{7ca3aceb-4894-470b-a67b-94676098a162}">
+        <Declaration><![CDATA[]]></Declaration>
+      </Get>
+    </Property>
+    <Method Name="Reset" Id="{28ae49f6-0f8a-4f79-9428-0a70fb3f6523}" FolderPath="Public\">
+      <Declaration><![CDATA[// Resets the time
+METHOD Reset : BOOL
+VAR_INPUT
+	bExecute : BOOL;
+END_VAR
+]]></Declaration>
+    </Method>
+    <Method Name="Stop" Id="{c47c79bd-dd6a-4839-a5ec-0ca1698e0ea5}" FolderPath="Public\">
+      <Declaration><![CDATA[// Will stop the time and reset to 00:00:00:00
+METHOD Stop : BOOL
+VAR_INPUT
+	bExecute : BOOL;
+END_VAR
+
+]]></Declaration>
+    </Method>
+    <Property Name="Stopped" Id="{2932507c-8a2a-4151-8d5e-1a922b4882e4}" FolderPath="Public\">
+      <Declaration><![CDATA[PROPERTY Stopped : BOOL]]></Declaration>
+      <Get Name="Get" Id="{703663ed-26a3-4e32-8c8f-6b78da24d556}">
+        <Declaration><![CDATA[]]></Declaration>
+      </Get>
+    </Property>
+    <Property Name="TimeStruct" Id="{844ce3d6-1d05-47f7-8dd9-51d704786b17}" FolderPath="Public\">
+      <Declaration><![CDATA[// Returns the SMPTE_Sender_TimeStruct
+PROPERTY TimeStruct : REFERENCE TO ST_SMPTE_TimeStruct;
+]]></Declaration>
+      <Get Name="Get" Id="{7fbae9f9-b418-4807-8db5-949148fba8b3}">
+        <Declaration><![CDATA[]]></Declaration>
+      </Get>
+    </Property>
+  </Itf>
+</TcPlcObject>

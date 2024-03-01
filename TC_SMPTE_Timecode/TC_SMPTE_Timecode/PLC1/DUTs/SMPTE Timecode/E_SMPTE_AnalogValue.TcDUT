@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <DUT Name="E_SMPTE_AnalogValue" Id="{17990ae8-bc3c-458b-93c2-8c7e86671a47}">
+    <Declaration><![CDATA[TYPE E_SMPTE_AnalogValue :
+(
+	LOW := 0, HIGH := 32000
+)INT;
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>
