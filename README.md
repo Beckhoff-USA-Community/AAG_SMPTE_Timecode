@@ -1,7 +1,46 @@
 # About This Repository
 
--- UPDATE THIS SECTION -- 
-This Repository is a template meant for basing new public repos off of. A new GitHub repo can be based off this template to automatically import the same TwinCAT GitIgnore and README file templates. After importing, replace this text to match the desired repo descriptions. 
+This repository is an example of how to implement both a SMPTE Timecode Receiver and SMPTE Timecode Sender. SMPTE (Society of Motion Picture and Television Engineers) Timecode is use throughout the entertainment industry for synchronizing video, audio, lights, motion, and much more. With TwinCAT PLC and the power of XFC Oversampling terminals, we can both send and receive the SMPTE Timecode signal.
+
+### Receiver
+
+For the receiver project, the cycle time requirement is 1ms and the terminal oversampling factor is set to 100. There is an easy to use Function Block for processing the signals and managing the receiver.
+
+
+
+
+
+### Sender
+
+For the SMPTE Sender, there are two Function Blocks required. The first is a FB_SMPTE_TimeController block that is used as a time source for the SMPTE Sender, and can be controlled via simple Play, Stop, Pause, and Reset commands. The second block is FB_SMPTE_Sender that is responsible for taking the time stamp provided by FB_SMPTE_TimeController  and processing it as a SMPTE signal for analog output. 
+
+A requirement of the SMPTE Sender code is a PLC cycle time of 20ms, and an oversampling rate of 80. Currently, the only framerate supported is **25 FPS** due to the maximum filter speed of oversampling terminals.
+
+First, configure the Time Controller:
+
+<img align="left" src="/Images/SMPTE_Sender_TimeControllerVar.PNG)">
+
+The time controller can operate based on three different sources. NT source uses the Windows NT Time of the controller, DC uses the DC clock value, and External allows you to supply your own external ULINT signal from the TwinCAT External Time Provider (NTP, or DC):
+
+![TimeMode](C:\Users\JohnH\Documents\GitHub\AAG_SMPTE_Timecode\Images\TimeMode.PNG)
+
+
+
+![ExternalTime](C:\Users\JohnH\Documents\GitHub\AAG_SMPTE_Timecode\Images\ExternalTime.PNG)
+
+If using the external time provider, you need to assign it before use; like in the example below:
+
+![SMPTE_Sender_TimeControllerPOU](C:\Users\JohnH\Documents\GitHub\AAG_SMPTE_Timecode\Images\SMPTE_Sender_TimeControllerPOU.PNG)
+
+Second, you need to configure the SMPTE Sender and attach the time controller:
+
+![SMPTE_Sender_Var](C:\Users\JohnH\Documents\GitHub\AAG_SMPTE_Timecode\Images\SMPTE_Sender_Var.PNG)
+
+![SMPTE_Sender_POU](C:\Users\JohnH\Documents\GitHub\AAG_SMPTE_Timecode\Images\SMPTE_Sender_POU.PNG)
+
+
+
+
 
 This sample is created by [Beckhoff Automation LLC.](https://www.beckhoff.com/en-us/), and is provided as-is under the Zero-Clause BSD license.
 
@@ -11,12 +50,12 @@ Should you have any questions regarding the provided sample code, please contact
 
 # Further Information
 
--- UPDATE THIS SECTION -- 
-Further Information on -- THIS REPO TOPIC -- can be found at the [Beckhoff Infosys](https://infosys.beckhof.com) under the [REPO TOPIC](https://infosys.beckhoff.com/content/1033/ethercatsystem/2469077771.html?id=8287668039751154112)
+Further Information on SMPTE Timecode with TwinCAT can be found in the [Application Note.](https://www.beckhoff.com/media/downloads/application-reports-downloads/2013/dk9222-0213-0063-2.pdf)
 
 ## Requirements
 
 The following components must be installed to run sample code:
 
 - [TE1000 TwinCAT 3 Engineering](https://www.beckhoff.com/en-en/products/automation/twincat/te1xxx-twincat-3-engineering/te1000.html) version 3.1.4024.0 or higher
-- -- UPDATE THIS SECTION --
+- EL3702 for SMPTE Timecode Receiving
+- EL4732 for SMPTE Timecode Sending
