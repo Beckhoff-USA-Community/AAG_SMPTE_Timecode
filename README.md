@@ -17,27 +17,29 @@ For the SMPTE Sender, there are two Function Blocks required. The first is a FB_
 A requirement of the SMPTE Sender code is a PLC cycle time of 20ms, and an oversampling rate of 80. Currently, the only framerate supported is **25 FPS** due to the maximum filter speed of oversampling terminals.
 
 First, configure the Time Controller:
-
-<img align="left" src="/Images/SMPTE_Sender_TimeControllerVar.PNG)">
+<p align="left">
+  <img src="https://github.com/Beckhoff-USA-Community/AAG_SMPTE_Timecode/blob/main/Images/SMPTE_Sender_TimeControllerVar.PNG">
+</p>  
 
 The time controller can operate based on three different sources. NT source uses the Windows NT Time of the controller, DC uses the DC clock value, and External allows you to supply your own external ULINT signal from the TwinCAT External Time Provider (NTP, or DC):
 
-![TimeMode](C:\Users\JohnH\Documents\GitHub\AAG_SMPTE_Timecode\Images\TimeMode.PNG)
-
-
-
-![ExternalTime](C:\Users\JohnH\Documents\GitHub\AAG_SMPTE_Timecode\Images\ExternalTime.PNG)
+<p align="left">
+<img src="https://github.com/Beckhoff-USA-Community/AAG_SMPTE_Timecode/blob/main/Images/TimeMode.PNG">
+<img src="https://github.com/Beckhoff-USA-Community/AAG_SMPTE_Timecode/blob/main/Images/ExternalTime.PNG">
+</p>  
 
 If using the external time provider, you need to assign it before use; like in the example below:
 
-![SMPTE_Sender_TimeControllerPOU](C:\Users\JohnH\Documents\GitHub\AAG_SMPTE_Timecode\Images\SMPTE_Sender_TimeControllerPOU.PNG)
+<p align="left">
+<img src="https://github.com/Beckhoff-USA-Community/AAG_SMPTE_Timecode/blob/main/Images/SMPTE_Sender_TimeControllerPOU.PNG">
+</p>  
 
 Second, you need to configure the SMPTE Sender and attach the time controller:
 
-![SMPTE_Sender_Var](C:\Users\JohnH\Documents\GitHub\AAG_SMPTE_Timecode\Images\SMPTE_Sender_Var.PNG)
-
-![SMPTE_Sender_POU](C:\Users\JohnH\Documents\GitHub\AAG_SMPTE_Timecode\Images\SMPTE_Sender_POU.PNG)
-
+<p align="left">
+<img src="https://github.com/Beckhoff-USA-Community/AAG_SMPTE_Timecode/blob/main/Images/SMPTE_Sender_Var.PNG">
+<img src="https://github.com/Beckhoff-USA-Community/AAG_SMPTE_Timecode/blob/main/Images/SMPTE_Sender_POU.PNG">
+</p> 
 
 
 
