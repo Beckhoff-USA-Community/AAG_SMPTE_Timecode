@@ -6,8 +6,10 @@ This repository is an example of how to implement both a SMPTE Timecode Receiver
 
 For the receiver project, the cycle time requirement is 1ms and the terminal oversampling factor is set to 100. There is an easy to use Function Block for processing the signals and managing the receiver.
 
-
-
+<p align="left">
+<img src="https://github.com/Beckhoff-USA-Community/AAG_SMPTE_Timecode/blob/main/Images/SMPTE_Receive_VARs.PNG">
+<img src="https://github.com/Beckhoff-USA-Community/AAG_SMPTE_Timecode/blob/main/Images/SMPTE_Receive_POU.PNG">
+</p>  
 
 
 ### Sender
