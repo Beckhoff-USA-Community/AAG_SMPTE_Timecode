@@ -2,6 +2,9 @@
 
 This repository is an example of how to implement both a SMPTE Timecode Receiver and SMPTE Timecode Sender. SMPTE (Society of Motion Picture and Television Engineers) Timecode is use throughout the entertainment industry for synchronizing video, audio, lights, motion, and much more. With TwinCAT PLC and the power of XFC Oversampling terminals, we can both send and receive the SMPTE Timecode signal.
 
+SMPTE Timecode basically supports different framerates per second (FPS); Typically 24, 25, 29 and 30 are common FPS. We do support different FPS for the receiving part, but for the sending part we are limited to 25 FPS.
+
+
 ### Receiver
 
 For the receiver project, the cycle time requirement is 1ms and the terminal oversampling factor is set to 100. There is an easy to use Function Block for processing the signals and managing the receiver.
