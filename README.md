@@ -4,6 +4,9 @@ This repository is an example of how to implement both a SMPTE Timecode Receiver
 
 SMPTE Timecode basically supports different framerates per second (FPS); Typically 24, 25, 29 and 30 are common FPS. We do support different FPS for the receiving part, but for the sending part we are limited to 25 FPS.
 
+The SMPTE Receiver FB takes a good amount of CPU load, as it is called every 1ms; it is recommended a CPU with of CX5xxx at minimum. It is also recommended run the receiving part in a separate task, if possible on a separated core, to not block the main-cpu too much.
+
+
 
 ### Receiver
 
@@ -26,7 +29,7 @@ First, configure the Time Controller:
   <img src="https://github.com/Beckhoff-USA-Community/AAG_SMPTE_Timecode/blob/main/Images/SMPTE_Sender_TimeControllerVar.PNG">
 </p>  
 
-The time controller can operate based on three different sources. NT source uses the Windows NT Time of the controller, DC uses the DC clock value, and External allows you to supply your own external ULINT signal from the TwinCAT External Time Provider (NTP, or DC):
+The time controller can operate based on three different sources. NT source uses the Windows NT Time of the controller, DC uses the DC clock value, and External allows you to supply your own external ULINT signal from the TwinCAT External Time Provider; Network Time Protocol (NTP) and EtherCAT Distributed Clocks (DC):
 
 <p align="left">
 <img src="https://github.com/Beckhoff-USA-Community/AAG_SMPTE_Timecode/blob/main/Images/TimeMode.PNG">
